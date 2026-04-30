@@ -505,7 +505,6 @@ if st.session_state.model is not None:
             if not api_key:
                 st.error("Please add your Gemini API key in the sidebar.")
             else:
-                genai.configure(api_key=api_key)
                 # Build rich context for the agent
                 context = f"""
 You are a senior load forecasting analyst for an electric utility (UC-01 use case).
