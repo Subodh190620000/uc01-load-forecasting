@@ -316,13 +316,35 @@ if st.session_state.model is not None:
         future_dates = pd.date_range(last_datetime + pd.Timedelta(hours=1),
                                      periods=forecast_horizon, freq="h")
 
-        # Build features for future timestamps using last known weather + lags from history
-        history = st.session_state.X_features_full.copy()
-        recent_temp = history["temperature_c"].tail(48).mean()
-        recent_humidity = history["humidity_pct"].tail(48).mean()
+        # Build features for future timestamps using rolling forecasts (recursive lag lookups)
+        history = st.session_state.X_features_full.copy().reset_index(drop=True)
+
+        # Recent diurnal temperature pattern (avg by hour over last 7 days)
+        recent_history = history.tail(24 * 7).copy()
+        hourly_temp = recent_history.groupby("hour")["temperature_c"].mean().to_dict()
+        hourly_hum = recent_history.groupby("hour")["humidity_pct"].mean().to_dict()
+        avg_temp = float(history["temperature_c"].mean())
+        avg_hum = float(history["humidity_pct"].mean())
+        avg_load = float(history["total_load_mw"].mean())
+
+        # Build a working list of (datetime, load) to allow recursive lag lookups
+        # Start with full history, append predictions as we go
+        load_series = history.set_index("datetime")["total_load_mw"].to_dict()
 
         future_rows = []
+        future_preds = []
         for fd in future_dates:
+            # Look up actual lag values from history+previous predictions
+            lag_24h_time = fd - pd.Timedelta(hours=24)
+            lag_168h_time = fd - pd.Timedelta(hours=168)
+
+            lag_24h = load_series.get(lag_24h_time, avg_load)
+            lag_168h = load_series.get(lag_168h_time, avg_load)
+
+            # Rolling 24-hr mean from the previous 24 known/predicted hours
+            recent_24h = [load_series.get(fd - pd.Timedelta(hours=h), avg_load) for h in range(1, 25)]
+            roll_24h = float(np.mean(recent_24h))
+
             row = {
                 "hour": fd.hour,
                 "dow_num": fd.dayofweek,
@@ -330,16 +352,21 @@ if st.session_state.model is not None:
                 "day": fd.day,
                 "is_weekend": int(fd.dayofweek >= 5),
                 "is_holiday": 0,
-                "temperature_c": recent_temp,
-                "humidity_pct": recent_humidity,
-                "load_lag_24h": float(history["total_load_mw"].iloc[-24]) if len(history) >= 24 else float(history["total_load_mw"].mean()),
-                "load_lag_168h": history["total_load_mw"].iloc[-168] if len(history) >= 168 else history["total_load_mw"].mean(),
-                "load_roll_24h_mean": history["total_load_mw"].tail(24).mean(),
+                "temperature_c": float(hourly_temp.get(fd.hour, avg_temp)),
+                "humidity_pct": float(hourly_hum.get(fd.hour, avg_hum)),
+                "load_lag_24h": float(lag_24h),
+                "load_lag_168h": float(lag_168h),
+                "load_roll_24h_mean": roll_24h,
             }
+            # Predict this hour and add to series so next iteration can use it as lag
+            row_df = pd.DataFrame([row])
+            pred = float(st.session_state.model.predict(row_df[st.session_state.feature_cols])[0])
+            load_series[fd] = pred
+            future_preds.append(pred)
             future_rows.append(row)
 
         future_df = pd.DataFrame(future_rows)
-        future_pred = st.session_state.model.predict(future_df[st.session_state.feature_cols])
+        future_pred = np.array(future_preds)
 
         forecast_df = pd.DataFrame({"datetime": future_dates, "forecast_mw": future_pred})
 
@@ -505,6 +532,18 @@ if st.session_state.model is not None:
             if not api_key:
                 st.error("Please add your Gemini API key in the sidebar.")
             else:
+                # Build feature importance summary from session state
+                shap_vals_arr = st.session_state.shap_values
+                feature_names_local = st.session_state.feature_cols
+                mean_abs = np.abs(shap_vals_arr).mean(axis=0)
+                top_features_text = "\n".join([
+                    f"  - {feat}: {imp:.2f} MW avg impact"
+                    for feat, imp in sorted(
+                        zip(feature_names_local, mean_abs),
+                        key=lambda x: x[1], reverse=True
+                    )[:5]
+                ])
+
                 # Build rich context for the agent
                 context = f"""
 You are a senior load forecasting analyst for an electric utility (UC-01 use case).
@@ -516,7 +555,7 @@ Model performance:
 - R²: {st.session_state.metrics['R²']:.3f}
 
 Top SHAP features (most important):
-{imp_df.tail(5).to_string(index=False)}
+{top_features_text}
 
 Recent dataset stats:
 - Rows: {len(df)}
@@ -573,6 +612,6 @@ for col, (icon, title, desc) in zip([b1, b2, b3, b4], benefits):
         <div class="section-card" style="height:130px;">
         <div style="font-size:1.6rem;">{icon}</div>
         <b>{title}</b>
-        <p style="font-size:0.8rem; color:#555; margin-top:4px;">{desc}</p>
+        <p style="font-size:0.8rem; color:#555;margin-top:4px;">{desc}</p>
         </div>
         """, unsafe_allow_html=True)
