@@ -218,6 +218,7 @@ if "model" not in st.session_state:
     st.session_state.feature_cols = None
     st.session_state.shap_values = None
     st.session_state.X_features_full = None
+    st.session_state.forecast_df = None
 
 train_btn = st.button(f"🚀 Train XGBoost Model ({retrain_cadence})", use_container_width=False)
 
@@ -319,16 +320,21 @@ if st.session_state.model is not None:
         # Build features for future timestamps using rolling forecasts (recursive lag lookups)
         history = st.session_state.X_features_full.copy().reset_index(drop=True)
 
-        # Recent diurnal temperature pattern (avg by hour over last 7 days)
+        # Use the MOST RECENT 24 hours of actual temperature as the future weather baseline
+        # This captures current conditions (heatwave, cool front) better than a 7-day average
+        last_day = history.tail(24).copy()
+        hourly_temp_recent = last_day.set_index("hour")["temperature_c"].to_dict()
+        hourly_hum_recent = last_day.set_index("hour")["humidity_pct"].to_dict()
+
+        # Fallback to 7-day average if recent day is missing hours
         recent_history = history.tail(24 * 7).copy()
-        hourly_temp = recent_history.groupby("hour")["temperature_c"].mean().to_dict()
-        hourly_hum = recent_history.groupby("hour")["humidity_pct"].mean().to_dict()
+        hourly_temp_7d = recent_history.groupby("hour")["temperature_c"].mean().to_dict()
+        hourly_hum_7d = recent_history.groupby("hour")["humidity_pct"].mean().to_dict()
         avg_temp = float(history["temperature_c"].mean())
         avg_hum = float(history["humidity_pct"].mean())
         avg_load = float(history["total_load_mw"].mean())
 
         # Build a working list of (datetime, load) to allow recursive lag lookups
-        # Start with full history, append predictions as we go
         load_series = history.set_index("datetime")["total_load_mw"].to_dict()
 
         future_rows = []
@@ -345,6 +351,10 @@ if st.session_state.model is not None:
             recent_24h = [load_series.get(fd - pd.Timedelta(hours=h), avg_load) for h in range(1, 25)]
             roll_24h = float(np.mean(recent_24h))
 
+            # Use recent day's temp first, fall back to 7-day average
+            temp_val = float(hourly_temp_recent.get(fd.hour, hourly_temp_7d.get(fd.hour, avg_temp)))
+            hum_val = float(hourly_hum_recent.get(fd.hour, hourly_hum_7d.get(fd.hour, avg_hum)))
+
             row = {
                 "hour": fd.hour,
                 "dow_num": fd.dayofweek,
@@ -352,8 +362,8 @@ if st.session_state.model is not None:
                 "day": fd.day,
                 "is_weekend": int(fd.dayofweek >= 5),
                 "is_holiday": 0,
-                "temperature_c": float(hourly_temp.get(fd.hour, avg_temp)),
-                "humidity_pct": float(hourly_hum.get(fd.hour, avg_hum)),
+                "temperature_c": temp_val,
+                "humidity_pct": hum_val,
                 "load_lag_24h": float(lag_24h),
                 "load_lag_168h": float(lag_168h),
                 "load_roll_24h_mean": roll_24h,
@@ -369,6 +379,9 @@ if st.session_state.model is not None:
         future_pred = np.array(future_preds)
 
         forecast_df = pd.DataFrame({"datetime": future_dates, "forecast_mw": future_pred})
+
+        # Save forecast to session state so the chat agent can see actual values
+        st.session_state.forecast_df = forecast_df
 
         fig_f = go.Figure()
         fig_f.add_trace(go.Scatter(
@@ -544,10 +557,35 @@ if st.session_state.model is not None:
                     )[:5]
                 ])
 
+                # Build ACTUAL forecast summary so agent can answer specific questions
+                forecast_summary = "Forecast not yet generated."
+                if "forecast_df" in st.session_state and st.session_state.forecast_df is not None:
+                    fc = st.session_state.forecast_df.copy()
+                    fc["date"] = fc["datetime"].dt.date
+                    daily = fc.groupby("date").agg(
+                        peak_mw=("forecast_mw", "max"),
+                        peak_hour=("forecast_mw", lambda s: int(fc.loc[s.idxmax(), "datetime"].hour)),
+                        min_mw=("forecast_mw", "min"),
+                        avg_mw=("forecast_mw", "mean"),
+                    ).reset_index()
+                    forecast_summary = "Per-day forecast summary:\n"
+                    for _, r in daily.iterrows():
+                        forecast_summary += (
+                            f"  - {r['date']}: peak {r['peak_mw']:.0f} MW at hour {r['peak_hour']:02d}:00, "
+                            f"min {r['min_mw']:.0f} MW, avg {r['avg_mw']:.0f} MW\n"
+                        )
+                    overall_peak_idx = fc["forecast_mw"].idxmax()
+                    overall_peak_time = fc.loc[overall_peak_idx, "datetime"]
+                    overall_peak = fc.loc[overall_peak_idx, "forecast_mw"]
+                    forecast_summary += f"\nOverall horizon peak: {overall_peak:.0f} MW at {overall_peak_time}"
+
                 # Build rich context for the agent
                 context = f"""
 You are a senior load forecasting analyst for an electric utility (UC-01 use case).
-You have access to a trained XGBoost model and SHAP explanations.
+You have access to a trained XGBoost model, SHAP explanations, AND the actual forecast values shown below.
+
+ACTUAL FORECAST OUTPUT (use this to answer questions about tomorrow/upcoming peaks):
+{forecast_summary}
 
 Model performance:
 - MAE: {st.session_state.metrics['MAE']:.2f} MW
@@ -567,6 +605,8 @@ Recent dataset stats:
 Forecast horizon: {forecast_horizon} hours
 Retraining cadence: {retrain_cadence}
 
+When asked about "tomorrow's peak" or "upcoming peak", USE THE ACTUAL FORECAST VALUES ABOVE.
+Do NOT say you don't have access to the forecast — it is provided above.
 Answer questions clearly and concisely. Suggest concrete utility actions
 (battery scheduling, demand response, generation commitment) where relevant.
 """
