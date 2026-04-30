@@ -289,8 +289,10 @@ if st.session_state.model is not None:
     # ----- FORECAST TAB -----
     with tab_forecast:
         st.markdown(f"#### Actual vs Predicted (last {test_size}% of data)")
+        # Use .loc with the actual index labels (not positional .iloc) to avoid out-of-bounds
+        test_datetimes = st.session_state.X_features_full.loc[st.session_state.X_test.index, "datetime"].values
         plot_df = pd.DataFrame({
-            "datetime": st.session_state.X_features_full["datetime"].iloc[st.session_state.X_test.index].values,
+            "datetime": test_datetimes,
             "Actual": st.session_state.y_test.values,
             "Predicted": st.session_state.y_pred,
         })
@@ -330,7 +332,7 @@ if st.session_state.model is not None:
                 "is_holiday": 0,
                 "temperature_c": recent_temp,
                 "humidity_pct": recent_humidity,
-                "load_lag_24h": history["total_load_mw"].iloc[-(24 - fd.hour) % 24 - 1] if len(history) >= 24 else history["total_load_mw"].mean(),
+                "load_lag_24h": float(history["total_load_mw"].iloc[-24]) if len(history) >= 24 else float(history["total_load_mw"].mean()),
                 "load_lag_168h": history["total_load_mw"].iloc[-168] if len(history) >= 168 else history["total_load_mw"].mean(),
                 "load_roll_24h_mean": history["total_load_mw"].tail(24).mean(),
             }
