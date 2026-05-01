@@ -36,22 +36,47 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# Custom CSS — purple theme matching the UC-01 slide
+# Custom CSS — Accenture brand palette (Purple #A100FF + Black)
 st.markdown("""
 <style>
-[data-testid="stAppViewContainer"] { background:#fafbfc; }
-[data-testid="stSidebar"] { background:#ffffff; border-right: 1px solid #e8eaed; }
-[data-testid="stMetric"] { background:#ffffff; border:1px solid #e8eaed; border-radius:10px; padding:12px 16px; }
-.stButton > button { background:#8B14E0 !important; color:white !important; border:none !important; border-radius:8px !important; font-weight:600 !important; }
-.stButton > button:hover { background:#6B0FAB !important; }
-.uc-tag { display:inline-block; background:#8B14E0; color:white; padding:4px 12px; border-radius:4px; font-size:0.75rem; font-weight:700; letter-spacing:0.5px; margin-bottom:8px; }
-.section-card { background:#ffffff; border:1px solid #e8eaed; border-radius:10px; padding:18px 20px; margin-bottom:14px; }
-.section-card h4 { color:#8B14E0; margin-top:0; }
-.kpi-card { background:linear-gradient(135deg,#8B14E0 0%,#6B0FAB 100%); color:white; border-radius:10px; padding:16px; }
+[data-testid="stAppViewContainer"] { background:#FAFAFA; }
+[data-testid="stSidebar"] { background:#ffffff; border-right: 1px solid #E8E8EE; }
+[data-testid="stMetric"] { background:#ffffff; border:1px solid #E8E8EE; border-radius:10px; padding:12px 16px; }
+.stButton > button { background:#A100FF !important; color:white !important; border:none !important; border-radius:8px !important; font-weight:600 !important; transition:all 0.2s ease; }
+.stButton > button:hover { background:#7000B8 !important; transform:translateY(-1px); box-shadow:0 4px 12px rgba(161,0,255,0.25); }
+.uc-tag { display:inline-block; background:#000000; color:#A100FF; padding:4px 12px; border-radius:4px; font-size:0.75rem; font-weight:700; letter-spacing:0.5px; margin-bottom:8px; }
+.section-card { background:#ffffff; border:1px solid #E8E8EE; border-radius:10px; padding:18px 20px; margin-bottom:14px; }
+.section-card h4 { color:#A100FF; margin-top:0; }
+.kpi-card { background:linear-gradient(135deg,#A100FF 0%,#7000B8 100%); color:white; border-radius:10px; padding:16px; }
 .kpi-card .label { font-size:0.78rem; opacity:0.85; text-transform:uppercase; letter-spacing:0.5px; }
 .kpi-card .value { font-size:1.6rem; font-weight:700; margin-top:4px; }
-.chat-user { background:#F3E8FF; padding:10px 14px; border-radius:10px; margin:6px 0; }
-.chat-agent { background:#F7F8FA; border:1px solid #e8eaed; padding:10px 14px; border-radius:10px; margin:6px 0; }
+
+/* === Accenture-styled chat === */
+[data-testid="stChatMessage"] {
+    background: transparent !important;
+    padding: 12px 0 !important;
+    border-bottom: 1px solid #F0F0F4;
+}
+[data-testid="stChatMessage"]:last-child { border-bottom: none; }
+[data-testid="stChatMessageContent"] { font-size: 15px; line-height: 1.7; }
+[data-testid="stChatMessageContent"] code { background:#F5E9FF; color:#7000B8; padding:1px 6px; border-radius:4px; font-size:13px; }
+[data-testid="stChatMessageContent"] pre { background:#0E0E1A; color:#F5E9FF; padding:12px; border-radius:8px; overflow-x:auto; }
+[data-testid="stChatMessageContent"] strong { color:#000000; font-weight:600; }
+[data-testid="stChatMessageContent"] ul, [data-testid="stChatMessageContent"] ol { padding-left:22px; margin:8px 0; }
+[data-testid="stChatMessageContent"] li { margin-bottom:4px; }
+[data-testid="stChatMessageContent"] blockquote { border-left:3px solid #A100FF; padding-left:12px; color:#555; margin:8px 0; }
+
+/* Style the chat input bar */
+[data-testid="stChatInput"] textarea { font-size:15px !important; }
+[data-testid="stChatInput"] { border:1px solid #E8E8EE !important; border-radius:12px !important; }
+[data-testid="stChatInput"]:focus-within { border-color:#A100FF !important; box-shadow:0 0 0 3px rgba(161,0,255,0.1) !important; }
+
+/* Typing dots animation */
+.typing-dots { display:inline-flex; gap:4px; padding:8px 0; }
+.typing-dots span { width:7px; height:7px; border-radius:50%; background:#A100FF; animation:typing 1.4s infinite ease-in-out; }
+.typing-dots span:nth-child(2) { animation-delay:0.2s; }
+.typing-dots span:nth-child(3) { animation-delay:0.4s; }
+@keyframes typing { 0%,80%,100% { transform:scale(0.6); opacity:0.4; } 40% { transform:scale(1); opacity:1; } }
 </style>
 """, unsafe_allow_html=True)
 
@@ -290,10 +315,8 @@ if st.session_state.model is not None:
     # ----- FORECAST TAB -----
     with tab_forecast:
         st.markdown(f"#### Actual vs Predicted (last {test_size}% of data)")
-        # Use .loc with the actual index labels (not positional .iloc) to avoid out-of-bounds
-        test_datetimes = st.session_state.X_features_full.loc[st.session_state.X_test.index, "datetime"].values
         plot_df = pd.DataFrame({
-            "datetime": test_datetimes,
+            "datetime": st.session_state.X_features_full["datetime"].iloc[st.session_state.X_test.index].values,
             "Actual": st.session_state.y_test.values,
             "Predicted": st.session_state.y_pred,
         })
@@ -302,7 +325,7 @@ if st.session_state.model is not None:
         fig.add_trace(go.Scatter(x=plot_df["datetime"], y=plot_df["Actual"],
                                  name="Actual", line=dict(color="#1a1a2e", width=2)))
         fig.add_trace(go.Scatter(x=plot_df["datetime"], y=plot_df["Predicted"],
-                                 name="Predicted", line=dict(color="#8B14E0", width=2, dash="dot")))
+                                 name="Predicted", line=dict(color="#A100FF", width=2, dash="dot")))
         fig.update_layout(
             height=420, plot_bgcolor="white", paper_bgcolor="white",
             yaxis_title="Total Load (MW)", xaxis_title="",
@@ -320,7 +343,7 @@ if st.session_state.model is not None:
         # Build features for future timestamps using rolling forecasts (recursive lag lookups)
         history = st.session_state.X_features_full.copy().reset_index(drop=True)
 
-        # Use the MOST RECENT 24 hours of actual temperature as the future weather baseline
+        # Use the MOST RECENT 24-48 hours of actual temperature as the future weather baseline
         # This captures current conditions (heatwave, cool front) better than a 7-day average
         last_day = history.tail(24).copy()
         hourly_temp_recent = last_day.set_index("hour")["temperature_c"].to_dict()
@@ -335,6 +358,7 @@ if st.session_state.model is not None:
         avg_load = float(history["total_load_mw"].mean())
 
         # Build a working list of (datetime, load) to allow recursive lag lookups
+        # Start with full history, append predictions as we go
         load_series = history.set_index("datetime")["total_load_mw"].to_dict()
 
         future_rows = []
@@ -390,7 +414,7 @@ if st.session_state.model is not None:
         ))
         fig_f.add_trace(go.Scatter(
             x=forecast_df["datetime"], y=forecast_df["forecast_mw"],
-            name=f"Forecast (+{forecast_horizon}h)", line=dict(color="#8B14E0", width=3)
+            name=f"Forecast (+{forecast_horizon}h)", line=dict(color="#A100FF", width=3)
         ))
         fig_f.update_layout(
             height=380, plot_bgcolor="white", paper_bgcolor="white",
@@ -459,7 +483,7 @@ if st.session_state.model is not None:
             x=contrib_df["shap_contribution_mw"],
             y=contrib_df["feature"],
             orientation="h",
-            marker_color=["#8B14E0" if v > 0 else "#E0148B" for v in contrib_df["shap_contribution_mw"]],
+            marker_color=["#A100FF" if v > 0 else "#FF1493" for v in contrib_df["shap_contribution_mw"]],
             text=[f"{v:+.1f} MW" for v in contrib_df["shap_contribution_mw"]],
             textposition="outside",
         ))
@@ -528,23 +552,56 @@ if st.session_state.model is not None:
 
     # ----- CHAT TAB -----
     with tab_chat:
-        st.markdown("#### Ask the agent about your forecast")
-        st.caption("Powered by Gemini — interprets results, explains SHAP, suggests actions.")
+        # Header row with title + controls
+        head_a, head_b = st.columns([4, 1])
+        with head_a:
+            st.markdown("#### 💬 Ask the agent about your forecast")
+            st.caption("Powered by Gemini — streams responses, renders markdown, remembers context.")
+        with head_b:
+            if st.button("🗑️ Clear chat", use_container_width=True):
+                st.session_state.chat_history = []
+                st.rerun()
 
         if "chat_history" not in st.session_state:
             st.session_state.chat_history = []
 
-        for msg in st.session_state.chat_history:
-            css = "chat-user" if msg["role"] == "user" else "chat-agent"
-            label = "You" if msg["role"] == "user" else "🤖 Agent"
-            st.markdown(f'<div class="{css}"><b>{label}:</b> {msg["text"]}</div>',
-                        unsafe_allow_html=True)
+        # Quick-action chips for common questions
+        if not st.session_state.chat_history:
+            st.markdown("**Try asking:**")
+            chip_cols = st.columns(2)
+            chips = [
+                "What is tomorrow's peak load and at what hour?",
+                "Should we pre-charge batteries today? When?",
+                "Compare the next 3 days of forecasted peaks.",
+                "Explain the top SHAP feature in plain English.",
+            ]
+            quick_q = None
+            for i, chip in enumerate(chips):
+                with chip_cols[i % 2]:
+                    if st.button(chip, key=f"chip_{i}", use_container_width=True):
+                        quick_q = chip
+        else:
+            quick_q = None
 
-        user_q = st.chat_input("e.g. Why is the peak so high tomorrow evening?")
+        # Render past messages with native chat UI
+        for msg in st.session_state.chat_history:
+            avatar = "👤" if msg["role"] == "user" else "⚡"
+            with st.chat_message(msg["role"], avatar=avatar):
+                st.markdown(msg["text"])
+
+        # Get user input — either from chat box or from a clicked chip
+        user_q = st.chat_input("Ask about your forecast…")
+        if quick_q and not user_q:
+            user_q = quick_q
+
         if user_q:
             if not api_key:
                 st.error("Please add your Gemini API key in the sidebar.")
             else:
+                # Show user message immediately
+                with st.chat_message("user", avatar="👤"):
+                    st.markdown(user_q)
+
                 # Build feature importance summary from session state
                 shap_vals_arr = st.session_state.shap_values
                 feature_names_local = st.session_state.feature_cols
@@ -557,7 +614,7 @@ if st.session_state.model is not None:
                     )[:5]
                 ])
 
-                # Build ACTUAL forecast summary so agent can answer specific questions
+                # Build ACTUAL forecast summary
                 forecast_summary = "Forecast not yet generated."
                 if "forecast_df" in st.session_state and st.session_state.forecast_df is not None:
                     fc = st.session_state.forecast_df.copy()
@@ -605,32 +662,50 @@ Recent dataset stats:
 Forecast horizon: {forecast_horizon} hours
 Retraining cadence: {retrain_cadence}
 
-When asked about "tomorrow's peak" or "upcoming peak", USE THE ACTUAL FORECAST VALUES ABOVE.
-Do NOT say you don't have access to the forecast — it is provided above.
-Answer questions clearly and concisely. Suggest concrete utility actions
-(battery scheduling, demand response, generation commitment) where relevant.
+FORMATTING RULES:
+- Use markdown formatting: **bold** for key numbers, bullet lists for actions, `code style` for MW values.
+- Keep responses focused and structured. Lead with the direct answer, then supporting detail.
+- When asked about "tomorrow's peak" or "upcoming peak", USE THE ACTUAL FORECAST VALUES ABOVE.
+- Do NOT say you don't have access to the forecast — it is provided above.
+- Suggest concrete utility actions (battery scheduling, demand response, generation commitment) where relevant.
 """
+                # Stream response
                 try:
                     client = genai.Client(api_key=api_key)
                     full_prompt = "\n".join(
                         [f"{m['role']}: {m['text']}" for m in st.session_state.chat_history]
                         + [f"user: {user_q}"]
                     )
-                    response = client.models.generate_content(
-                        model=model_name,
-                        contents=full_prompt,
-                        config=genai_types.GenerateContentConfig(
-                            system_instruction=context,
-                        ),
-                    )
-                    answer = response.text
+
+                    with st.chat_message("assistant", avatar="⚡"):
+                        # Show typing indicator while waiting for first token
+                        placeholder = st.empty()
+                        placeholder.markdown(
+                            '<div class="typing-dots"><span></span><span></span><span></span></div>',
+                            unsafe_allow_html=True
+                        )
+
+                        full_response = ""
+                        stream = client.models.generate_content_stream(
+                            model=model_name,
+                            contents=full_prompt,
+                            config=genai_types.GenerateContentConfig(
+                                system_instruction=context,
+                            ),
+                        )
+                        for chunk in stream:
+                            if chunk.text:
+                                full_response += chunk.text
+                                # Show cursor while streaming
+                                placeholder.markdown(full_response + "▌")
+                        # Final render without cursor
+                        placeholder.markdown(full_response)
+
                     st.session_state.chat_history.append({"role": "user", "text": user_q})
-                    st.session_state.chat_history.append({"role": "assistant", "text": answer})
+                    st.session_state.chat_history.append({"role": "assistant", "text": full_response})
                     st.rerun()
                 except Exception as e:
                     st.error(f"Gemini error: {e}")
-
-        st.caption("💡 Try: *Why is load high in evenings?* • *What if temp rises 5°C tomorrow?* • *Explain the top SHAP feature*")
 
 else:
     st.info("👆 Click **Train XGBoost Model** to start.")
@@ -652,6 +727,6 @@ for col, (icon, title, desc) in zip([b1, b2, b3, b4], benefits):
         <div class="section-card" style="height:130px;">
         <div style="font-size:1.6rem;">{icon}</div>
         <b>{title}</b>
-        <p style="font-size:0.8rem; color:#555;margin-top:4px;">{desc}</p>
+        <p style="font-size:0.8rem; color:#555; margin-top:4px;">{desc}</p>
         </div>
         """, unsafe_allow_html=True)
